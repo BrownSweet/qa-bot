@@ -6,32 +6,36 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import bcrypt
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import get_db
 from . import models
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 bearer_scheme = HTTPBearer(auto_error=False)
 
 ALGORITHM = "HS256"
 
 
-# ---------- 密码哈希 ----------
+# ---------- 密码哈希（直接用 bcrypt，避开已停更的 passlib 与新版 bcrypt 不兼容的问题）----------
+def _pw_bytes(password: str) -> bytes:
+    # bcrypt 仅使用前 72 字节，超长会报错；中文等多字节密码可能超过 72 字节，故截断
+    return password.encode("utf-8")[:72]
+
+
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_pw_bytes(password), bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return pwd_context.verify(plain, hashed)
+        return bcrypt.checkpw(_pw_bytes(plain), hashed.encode("utf-8"))
     except Exception:
         return False
 

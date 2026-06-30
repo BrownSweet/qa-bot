@@ -1,14 +1,18 @@
-fastapi==0.110.0
-uvicorn[standard]==0.28.0
-sqlalchemy==2.0.29
-pymysql==1.1.0
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
-httpx==0.27.0
-openpyxl==3.1.2
-python-dotenv==1.0.1
-pydantic==2.6.4
-cryptography==42.0.5
-# Optional: only needed if you connect to a PostgreSQL target database
-psycopg2-binary==2.9.9
+# 使用 >= 下限版本：让 pip 自动选择带预编译 wheel 的版本，
+# 这样在 Python 3.12 / 3.13 上都无需 Rust / C 编译器即可安装。
+fastapi>=0.110.0
+uvicorn>=0.28.0
+sqlalchemy>=2.0.36
+pymysql>=1.1.0
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.2.0
+httpx>=0.27.0
+openpyxl>=3.1.2
+python-dotenv>=1.0.1
+pydantic>=2.9.0
+cryptography>=43.0.0
+
+# 可选：仅当你要连接 PostgreSQL 数据源时才需要（MySQL/SQLite/Excel 不需要）。
+# 需要时再单独安装：
+#   pip install psycopg2-binary
+# psycopg2-binary>=2.9.10
