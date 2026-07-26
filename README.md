@@ -43,6 +43,46 @@ qa-robot/
 
 ## 快速开始
 
+### Docker 一键运行（Nginx + FastAPI）
+
+先准备配置：
+
+```bash
+cp .env.docker.example .env
+```
+
+使用 SQLite（默认，数据库文件自动持久化）：
+
+```bash
+docker compose up -d --build
+```
+
+使用内置 MySQL：
+
+```bash
+# 先把 .env 中的 DB_TYPE 改为 mysql，并修改所有密码
+docker compose --profile mysql up -d --build
+```
+
+数据库类型通过 `.env` 中的 `DB_TYPE=sqlite|mysql` 切换，修改后执行
+`docker compose up -d` 重建应用容器即可。浏览器访问：http://localhost:8080
+SQLite 和 MySQL 是两套独立存储，切换配置不会自动迁移已有数据。
+
+镜像内由 Nginx 托管前端并把 `/api` 反向代理到 FastAPI。默认 SQLite 数据保存在
+`app-data` 数据卷中，内置 MySQL 数据保存在 `mysql-data` 数据卷中。若连接宿主机或外部
+MySQL，不要启动 `mysql` profile，并将 `MYSQL_HOST` 改为 `host.docker.internal` 或实际地址。
+
+也可以只构建单个镜像：
+
+```bash
+docker build -t qa-robot .
+docker run -d --name qa-robot -p 8080:80 \
+  -e DB_TYPE=sqlite \
+  -v qa-robot-data:/app/data \
+  --restart unless-stopped \
+  qa-robot
+```
+
 ### 1. 后端
 
 ```bash
