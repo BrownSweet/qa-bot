@@ -2,16 +2,18 @@
   <div class="session-panel">
     <div class="section-head">
       <span>会话</span>
-      <el-button type="text" icon="el-icon-plus" @click="create">新建</el-button>
+      <el-button type="text" icon="el-icon-plus" :loading="creating" @click="create">新建</el-button>
     </div>
 
     <el-input v-model="keyword" placeholder="搜索会话" size="small" prefix-icon="el-icon-search"
               clearable @input="onSearch" class="search" />
 
     <div class="list">
-      <div v-if="!sessions.length" class="empty">暂无会话</div>
+      <div v-if="loading" class="empty">正在加载会话…</div>
+      <div v-else-if="loadError" class="empty">{{ loadError }} <el-button type="text" @click="load">重试</el-button></div>
+      <div v-else-if="!sessions.length" class="empty">暂无会话</div>
       <div v-for="s in sessions" :key="s.id" class="item" :class="{ active: s.id === activeId }"
-           @click="$emit('select', s.id)">
+           role="button" tabindex="0" @keydown.enter="$emit('select', s)" @click="$emit('select', s)">
         <i v-if="s.is_pinned" class="el-icon-top pin"></i>
         <span class="name">{{ s.name }}</span>
         <el-dropdown trigger="click" @command="(cmd) => onCommand(cmd, s)" @click.native.stop>
@@ -32,23 +34,32 @@ import * as api from '../../api'
 
 export default {
   name: 'SessionList',
-  props: { activeId: { type: String, default: '' } },
-  data() { return { sessions: [], keyword: '', timer: null } },
+  props: { activeId: { type: String, default: '' }, dbConfigId: String },
+  data() { return { sessions: [], keyword: '', timer: null, loading: false, loadError: '', creating: false, sequence: 0 } },
   mounted() { this.load() },
+  beforeDestroy() { clearTimeout(this.timer); this.sequence++ },
   methods: {
     async load() {
-      const res = await api.getSessions(this.keyword || undefined)
-      this.sessions = res.sessions
+      const sequence = ++this.sequence
+      this.loading = true; this.loadError = ''
+      try {
+        const res = await api.getSessions(this.keyword || undefined)
+        if (sequence === this.sequence) { this.sessions = res.sessions; this.$emit('loaded', this.sessions) }
+      } catch (error) { if (sequence === this.sequence) this.loadError = error.message }
+      finally { if (sequence === this.sequence) this.loading = false }
     },
     onSearch() {
       clearTimeout(this.timer)
       this.timer = setTimeout(this.load, 250)
     },
     async create() {
-      const res = await api.createSession({})
-      this.$message.success('会话创建成功')
-      await this.load()
-      this.$emit('select', res.session.id)
+      if (this.creating) return
+      this.creating = true
+      try {
+        const res = await api.createSession({ db_config_id: this.dbConfigId || null })
+        this.keyword = ''; await this.load(); this.$emit('select', res.session)
+        this.$message.success('会话创建成功')
+      } catch { /* API 已显示错误 */ } finally { this.creating = false }
     },
     onCommand(cmd, s) {
       if (cmd === 'rename') this.rename(s)
@@ -66,7 +77,7 @@ export default {
         .then(async () => {
           await api.deleteSession(s.id)
           this.$message.success('会话删除成功')
-          if (this.activeId === s.id) this.$emit('select', '')
+          if (this.activeId === s.id) this.$emit('select', null)
           this.load()
         }).catch(() => {})
     },

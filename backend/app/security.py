@@ -49,6 +49,7 @@ def create_token(user: "models.User", remember: bool = False) -> tuple:
         "username": user.username,
         "exp": expire,
         "iat": datetime.now(timezone.utc),
+        "pwd": hashlib.sha256(user.password_hash.encode()).hexdigest(),
     }
     token = jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
     return token, expire
@@ -134,4 +135,15 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "invalid_token", "message": "Token无效或已过期"},
         )
+    expected = hashlib.sha256(user.password_hash.encode()).hexdigest()
+    if payload.get("pwd") != expected:
+        raise HTTPException(401, detail={"error": "invalid_token", "message": "登录已失效，请重新登录"})
+    return user
+
+
+def get_admin_user(user=Depends(get_current_user)):
+    if settings.DESKTOP_MODE and user.id == "desktop-owner":
+        return user
+    if user.id not in settings.ADMIN_USER_IDS:
+        raise HTTPException(403, detail={"error": "forbidden", "message": "需要管理员权限"})
     return user

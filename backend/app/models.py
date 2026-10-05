@@ -50,6 +50,9 @@ class ChatSession(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(100), nullable=False)
     is_pinned = Column(Boolean, nullable=False, default=False)
+    # The last selected source. Keep the identifier after a config is deleted so
+    # the UI can report that the original source must be reconnected.
+    db_config_id = Column(String(36))
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -62,6 +65,12 @@ class Message(Base):
     role = Column(String(20), nullable=False)  # user / assistant
     content = Column(Text, nullable=False)
     status = Column(String(20), nullable=False)  # pending / completed / error
+    db_config_id = Column(String(36))
+    source_snapshot_json = Column(Text)
+    generation_snapshot_json = Column(Text)
+    question_message_id = Column(String(36))
+    evidence_json = Column(Text)
+    analysis_task_id = Column(String(36))
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -70,6 +79,7 @@ class SystemConfig(Base):
     id = Column(String(36), primary_key=True, default=gen_uuid)
     api_key = Column(String(255), nullable=False, default="")  # AES 加密
     api_url = Column(String(255), nullable=False, default="https://api.deepseek.com")
+    model = Column(String(100), nullable=False, default="deepseek-chat")
     timeout = Column(Integer, nullable=False, default=30)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

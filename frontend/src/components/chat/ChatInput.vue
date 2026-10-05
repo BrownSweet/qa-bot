@@ -11,8 +11,8 @@
     <div class="input-actions">
       <span class="tip">Enter 发送 / Shift+Enter 换行</span>
       <div>
-        <el-button v-if="disabled" type="danger" size="small" icon="el-icon-video-pause" @click="$emit('stop')">停止</el-button>
-        <el-button type="primary" size="small" icon="el-icon-position" :disabled="disabled || !text.trim()" @click="submit">
+        <el-button v-if="generating" type="danger" size="small" icon="el-icon-video-pause" @click="$emit('stop')">停止</el-button>
+        <el-button type="primary" size="small" icon="el-icon-position" :disabled="disabled || !dbSelected || !text.trim()" @click="submit">
           发送
         </el-button>
       </div>
@@ -21,9 +21,11 @@
 </template>
 
 <script>
+import { shouldSendOnEnter } from '../../utils/chat.mjs'
+
 export default {
   name: 'ChatInput',
-  props: { disabled: Boolean, dbSelected: Boolean, status: String },
+  props: { disabled: Boolean, generating: Boolean, dbSelected: Boolean, status: String },
   data() { return { text: '' } },
   computed: {
     placeholder() {
@@ -32,13 +34,14 @@ export default {
   },
   methods: {
     onEnter(e) {
-      if (e.shiftKey) return // 换行
+      if (!shouldSendOnEnter(e)) return
       e.preventDefault()
       this.submit()
     },
     submit() {
       const q = this.text.trim()
       if (!q || this.disabled) return
+      if (!this.dbSelected) return this.$message.warning('请先在左侧选择数据源')
       if (q.length > 1000) return this.$message.warning('问题长度不能超过1000字符')
       this.$emit('send', q)
       this.text = ''

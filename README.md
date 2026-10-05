@@ -1,138 +1,143 @@
-# 问答机器人系统
+# QA Robot · 本地数据问答
 
-基于自然语言的数据库问答机器人。用户接入自定义数据源（MySQL / PostgreSQL / SQLite / Excel），
-用自然语言提问，系统通过 DeepSeek 完成 NL2SQL → 执行查询 → 流式生成分析报告（SSE 打字机效果）。
+Windows / macOS 桌面应用。接入 MySQL、PostgreSQL、SQLite 或 Excel，用自然语言查询数据并生成流式分析报告。
 
-按照配套的 PRD / 技术架构 / 系统设计(SDD) / API 文档实现。
+安装包包含 Electron 界面、Python 后端、SQLite 与数据库驱动。使用者无需安装 Python、Node、Docker 或单独启动服务。AI 分析需要联网和自己的 DeepSeek API Key；数据库、会话和配置保存在本机。问题、表结构和部分查询结果会发送到设置中的 AI 服务。
 
-## 技术栈
+## 1.2.1 工作区与分析能力
 
-- **前端**：Vue 2.7 + Vite 4 + ElementUI + Vuex + Vue Router + Axios + marked
-- **后端**：FastAPI + SQLAlchemy 2 + JWT(python-jose) + bcrypt + AES-256-CBC(cryptography) + httpx + openpyxl
-- **AI**：DeepSeek API（NL2SQL + 结果分析，流式）
-- **主数据库**：默认 SQLite（零配置），可切换 MySQL 8.0+
+- 查询记录包含 SQL、来源快照和受限结果预览，帮助核对结论与查询依据；单元格最多 8 KiB，返回行 JSON 总量最多 256 KiB，完整证据保存上限为 512 KiB。历史来源不明确的记录不补造证据。
+- 数据源业务口径、可重复分析任务和标准问题评测提供独立管理入口。编辑数据源时，“保存并测试”仅在候选连接成功后替换旧配置。任务历史可并列查看两次运行，来源、SQL 或结果范围不一致时显示具体差异。评测需要自行录入真实业务问题、标准 SQL 与预期结果；项目不自带已经验证的 50–100 道业务样本。
+- 设置 → 本地应用可以备份、校验备份、恢复、导出诊断、打开日志和重启本地服务。服务无法启动时，原生“工作区”菜单仍提供恢复与诊断入口。
+- 新生成的回答、分析任务运行和评测记录保存当次 SQL 生成输入：模型、问题、Schema、业务口径、最近对话，以及任务模板和参数。历史页面可展开核对，CSV/Excel 会话导出也包含快照。旧记录显示“未记录”，不会用现值填充。Web 模式只返回 AI 服务地址指纹；桌面快照只存服务域名与地址指纹，不保存路径或凭证。
 
-## 目录结构
+查询证据和生成输入快照可能包含业务敏感数据，并会进入本地 SQLite、会话导出和工作区备份。**备份 ZIP 包含配对密钥和凭证，不额外加密**，请只保存在受控位置，分享前先确认内容。
 
-```
-qa-robot/
-├── backend/
-│   ├── app/
-│   │   ├── config.py          # 配置（读取 .env）
-│   │   ├── database.py        # 引擎/会话/建表+初始化
-│   │   ├── models.py          # 全部 SQLAlchemy 模型
-│   │   ├── schemas.py         # 全部 Pydantic 模型
-│   │   ├── security.py        # bcrypt / JWT / AES / 登录锁定 / 当前用户依赖
-│   │   ├── ai.py              # DeepSeek 封装（生成SQL/流式分析/连接测试）
-│   │   ├── engine_utils.py    # 目标库动态连接 / Schema / 执行SQL / Excel→SQLite
-│   │   ├── utils.py           # 统一错误 + 日志记录
-│   │   └── routers/           # auth/db_config/sessions/chat/system/user/excel/logs/export/notifications
-│   ├── main.py                # FastAPI 入口（路由挂载 + 统一错误格式）
-│   ├── requirements.txt
-│   └── .env.example
-└── frontend/
-    ├── src/
-    │   ├── api/index.js        # Axios 封装 + 全部接口 + SSE 流式问答
-    │   ├── store/index.js      # Vuex（token/user 持久化）
-    │   ├── router/index.js     # 路由 + 登录守卫
-    │   ├── views/              # AuthView / DashboardView / SettingsView
-    │   └── components/         # db / session / chat 组件
-    ├── vite.config.js          # /api 代理到 :8000
-    └── package.json
-```
+评测通过率只计算基线稳定且成功完成比对的样例，执行错误和基线变化单列。结果相同不能证明 SQL 语义在其他数据上正确，应为标准样例准备边界与反例数据。评测在请求模型前保存待执行记录与当次输入，中断的运行会留下可核对的错误记录。1.2.1 起保存的是当次输入快照；提示词模板代码、服务端模型实现和原始数据变化仍会影响重现，不能把快照当作确定性重放。升级前的旧记录无法补回当次输入。
 
-## 快速开始
+## 使用
 
-### Docker 一键运行（Nginx + FastAPI）
+1. Windows 运行 `QA-Robot-<版本>-win-x64.exe` 安装；macOS 打开对应芯片的 `.dmg`，将应用拖入 Applications。
+2. 启动后自动进入本地工作区，无需注册、手机验证码或登录。
+3. 设置 → AI 服务配置，填写 API Key，点击“保存并测试连接”。默认地址为 `https://api.deepseek.com`，模型为 `deepseek-chat`。
+4. 添加数据源。Excel / SQLite 可使用系统文件选择器；远程数据库建议专门创建只读账号。
+5. 创建会话并提问。支持停止回答、查看历史、重试对应问题和导出会话。
 
-先准备配置：
+Excel 支持 `.xlsx` / `.xlsm`，第一行为列名，各工作表映射为一张表。保留数字、日期类型，自动处理清洗后重名的列；单个工作簿最多 200,000 行。`.xls` 不受支持，公式使用文件中的缓存结果。
 
-```bash
-cp .env.docker.example .env
-```
+会话导出包含回答、来源快照、生成输入快照、SQL、范围说明和已保存结果预览；Excel 将较长查询依据及生成输入拆到独立工作表。回答中的查询依据也可单独导出，均不能代替全量原始数据。查询最多取 200 行且返回行 JSON 总量不超过 256 KiB，AI 最多分析其中前 50 行且结果输入不超过 64 KiB；实际行数还会随单元格与字节预算减少，截断时显示范围。最近 6 条已完成消息参与上下文理解；切换数据源后仍以本次实际 Schema 为准。
 
-使用 SQLite（默认，数据库文件自动持久化）：
+会话导出仅携带回答时保存的预览，最多 10,000 条消息、8 MiB 消息、证据与生成输入原文、10,000 行结果预览；超过任一限额会明确拒绝，可改为导出单次回答的结果预览。兼容接口 Excel `/sheet-data` 同样按流读取，限制为 200 行 / 256 KiB。
 
-```bash
-docker compose up -d --build
-```
+## 本地数据与安全边界
 
-使用内置 MySQL：
+- 设置 → 本地应用 → 打开数据目录。备份时退出应用，**同时保留 `qabot.db` 和 `secrets.json`**；缺失密钥后无法解密已有 API Key 和数据源密码。
+- 推荐使用“备份工作区”：通过 SQLite 在线备份得到一致快照，再记录文件摘要与数据库版本。可选择同时携带 Excel / SQLite 文件（最多 100 个、单文件 256 MiB、总量 1 GiB），在另一台机器恢复时复制到用户目录的独立 `sources/` 文件夹并重新关联数据源。远程数据库只保留连接配置。
+- “校验备份”不会修改当前数据；检查 ZIP 清单、摘要、SQLite 完整性、数据库与密钥能否配对、版本兼容性及缺失文件。仅配置备份不会携带外部文件，跨设备恢复后应重新定位。来源路径变化后，旧业务口径和分析任务可能需要重新确认，不能自动视为原数据源。
+- 恢复前会显示原生确认并停止本地服务；当前有效工作区会自动生成 `pre-restore` 备份。数据与密钥通过恢复日志共同替换，异常中断时下次启动先回滚。已有数据库但密钥缺失时，应用停止启动并引导恢复，不会另生成一套密钥掩盖问题。
+- 数据库通过 `schema_migrations` 记录版本。升级已有桌面库前会自动写入 `data/backups/pre-upgrade-*.zip`；旧记录新增的来源字段保持空值，未来版本数据库禁止降级打开。自动快照也包含敏感数据，长期使用时应定期检查磁盘与清理不再需要的备份。
+- 桌面使用新的独立数据目录，不自动读取或迁移仓库旧数据库、开发 `.env` 或 Docker 数据卷。升级与卸载不主动删除本地数据。
+- FastAPI 只监听 `127.0.0.1` 随机端口。每次启动生成独立传输凭证，仅 Electron 主进程为可信窗口请求添加；普通浏览器不能直接访问 API。
+- 页面启用 sandbox、context isolation、CSP，禁用 Node 集成、任意页面导航和默认权限。Markdown 用 DOMPurify 清洗。
+- SQLite 数据源以文件只读方式打开；SQL 经过单语句 AST 校验，拒绝写入、锁、文件访问和未知函数，执行时还有只读事务、超时与行数限制。应用内部数据库禁止作为数据源使用。
+- 本地密钥文件使用安装实例专属随机密钥和系统文件权限保护。这不抵御已取得当前操作系统账号权限的攻击者；安装包也不提供不可逆向保证。
+- 本地构建默认没有 Windows 发布者签名或 Apple Developer ID 公证。正式对外分发前应使用自己的签名身份，不能把本地 ad-hoc 签名当成 Apple 公证。
+- 日志在用户目录 `logs/`，单份最多约 4 MiB，保留 3 份。诊断 ZIP 只包含平台、架构、数据文件存在状态及日志数量统计，不导出原始日志文字、SQL、结果、数据库、密钥、外部数据文件或环境变量。原始日志可能包含业务错误描述，仅保存在本机；如需另外提供给支持人员，请先人工检查。
 
-```bash
-# 先把 .env 中的 DB_TYPE 改为 mysql，并修改所有密码
-docker compose --profile mysql up -d --build
+## 开发
+
+构建工具需要 Node.js 24、Python 3.12 和 uv，最终用户不需要这些工具。
+
+```sh
+npm ci
+npm ci --prefix frontend
+uv venv --python 3.12 backend/.venv-desktop
+uv pip install --python backend/.venv-desktop/bin/python -r backend/requirements-build.txt
+npm run frontend:build
+QA_BACKEND_PYTHON="$PWD/backend/.venv-desktop/bin/python" npm run desktop:dev
 ```
 
-数据库类型通过 `.env` 中的 `DB_TYPE=sqlite|mysql` 切换，修改后执行
-`docker compose up -d` 重建应用容器即可。浏览器访问：http://localhost:8080
-SQLite 和 MySQL 是两套独立存储，切换配置不会自动迁移已有数据。
+Windows 开发时虚拟环境解释器位于 `backend\.venv-desktop\Scripts\python.exe`，在 PowerShell 中设置 `$env:QA_BACKEND_PYTHON` 后运行 `npm run desktop:dev`。后端使用本机动态端口，不需要启动 Vite 服务。
 
-镜像内由 Nginx 托管前端并把 `/api` 反向代理到 FastAPI。默认 SQLite 数据保存在
-`app-data` 数据卷中，内置 MySQL 数据保存在 `mysql-data` 数据卷中。若连接宿主机或外部
-MySQL，不要启动 `mysql` profile，并将 `MYSQL_HOST` 改为 `host.docker.internal` 或实际地址。
+如果本机 npm 配置了 `ignore-scripts=true`，首次安装后还需运行 `node node_modules/electron/install.js` 下载 Electron 运行时。
 
-也可以只构建单个镜像：
+## 构建安装包
 
-```bash
-docker build -t qa-robot .
-docker run -d --name qa-robot -p 8080:80 \
-  -e DB_TYPE=sqlite \
-  -v qa-robot-data:/app/data \
-  --restart unless-stopped \
-  qa-robot
+先执行前端构建。打包钩子会校验前端构建指纹及后端平台、CPU 架构和源码摘要，避免带入旧页面或错平台后端。前端源码、配置、依赖锁或构建环境变化后需重新执行 `npm run frontend:build`。
+
+### macOS
+
+```sh
+backend/.venv-desktop/bin/python scripts/build_backend.py
+backend/.venv-desktop/bin/python scripts/smoke_backend.py
+npx electron-builder --mac --arm64 --publish never
+node scripts/smoke_desktop.cjs
 ```
 
-### 1. 后端
+Intel Mac 使用 `--x64`，后端也必须由 x64 Python 构建，不能只修改 Electron 架构后复用 ARM 后端。[cryptography 49.0.0 发布说明](https://cryptography.io/en/49.0.0/changelog/)已移除官方 macOS x64 wheel；当前锁定的 50.0.2 需要 x64 Rust/OpenSSL 工具链从源码编译。[1.2.1 验证记录](docs/desktop-validation-1.2.1.md)列出了本机 Rosetta 构建和运行结果。`QA_SMOKE_ARCH=x64 node scripts/smoke_desktop.cjs` 可在 Apple Silicon 上检查 x64 包，但 Intel 实机仍需单独验收。
 
-```bash
+### Windows x64
+
+```sh
+python scripts/build_windows_backend.py
+npx electron-builder --win --x64 --publish never
+```
+
+Windows 使用官方 CPython 3.13.16 embeddable runtime，校验官方 SHA-256，装配锁定的 Windows x64 wheels。该脚本可在 Mac 上准备资源，独立写入 `build/backend-windows`。在 Windows 上继续执行下面命令验证实际启动；跨平台装配成功不等于 Windows 运行测试通过：
+
+```sh
+python scripts/smoke_backend.py
+node scripts/smoke_desktop.cjs
+```
+
+产物位于 `release/`。`.github/workflows/desktop.yml` 支持手动构建，以及 `desktop-v*` 标签构建，包含 Windows x64、Mac ARM64、Mac Intel 三个原生 runner 的验证和安装包上传；不会自动发布 GitHub Release。
+
+为保留旧安装包，可设置 `QA_BUILD_ROOT="$PWD/build-1.2.1"` 和 `QA_RELEASE_DIR="$PWD/release-1.2.1"`，然后执行对应后端构建及 `node scripts/package_desktop.cjs mac arm64`（Windows 为 `win x64`）。打包前校验前端构建指纹及后端平台、架构、源码摘要与依赖锁，源码发生变化后必须重建对应资源。smoke 脚本也读取这两个隔离路径。
+
+正式签名使用 `node scripts/package_desktop.cjs mac arm64 --signed` 或 `win x64 --signed`。Mac 需要 `QA_MAC_SIGN_IDENTITY`、`CSC_LINK`、`CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`；Windows 需要 `WIN_CSC_LINK`/`CSC_LINK` 与对应密码。缺少证书或公证凭证会直接失败，不退回未签名产物。CI 的手动 `signed` 输入启用相同门槛。配置路径参照当前锁定的 [electron-builder v26 macOS 文档](https://www.electron.build/v26/docs/mac/)和 [Windows 文档](https://www.electron.build/v26/docs/win/)。证书和远端 CI 尚未实际执行时，不能声称已经完成正式发行签名。
+
+## 验证
+
+1.2.1 安装包、真实运行与升级检查见 [1.2.1 验证记录](docs/desktop-validation-1.2.1.md)；[1.2.0 验证记录](docs/desktop-validation-1.2.md)保留作历史依据。Windows、Intel Mac、正式签名、真实 AI 与远端 CI 的实际验证边界在新记录中分别列明。
+
+```sh
+backend/.venv-desktop/bin/python -m pytest backend/tests scripts/tests -q
+npm run test:desktop
+npm run test:frontend
+npm run frontend:build
+backend/.venv-desktop/bin/python scripts/smoke_backend.py --source
+```
+
+测试使用合成数据、临时目录和模拟 AI，不访问个人数据库、密钥或真实 AI 账号。打包后还需要运行上面的两个 smoke 脚本：后端覆盖本机鉴权、数据源与会话；Electron 覆盖真实窗口挂载、建立会话、设置页和退出。
+
+目前前端保留 Vue 2.7 / Element UI，升级了 Vite 与 Axios 并锁定依赖。Vue 2 模板编译相关的低级别依赖告警仍存在；应用不把用户输入编译为 Vue 模板。后续迁移 Vue 3 应单独完成组件回归。
+
+## 目录
+
+```text
+desktop/                   Electron 生命周期、IPC、文件对话框、进程管理
+backend/desktop_server.py  动态端口和父进程退出协议
+backend/app/               认证、数据源、SQL 安全、AI、会话和持久化
+frontend/src/              桌面界面与兼容 Web 界面
+scripts/                   各平台后端装配、架构校验、打包后验证
+backend/tests/             查询安全、Excel 类型、流取消、权限测试
+.github/workflows/         Windows / macOS 构建流水线
+```
+
+## 原有 Web / Docker 模式
+
+仍可独立使用 FastAPI 和 Vite。后端默认 `8000`，前端 `5555`，Vite 的 `/api` 代理到 `127.0.0.1:8000`。
+
+```sh
 cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env            # 按需修改；默认用 SQLite，开箱即用
 uvicorn main:app --reload --port 8000
 ```
 
-启动后访问交互式 API 文档：http://localhost:8000/docs
-
-### 2. 前端
-
-```bash
+```sh
 cd frontend
-npm install
-npm run dev                     # http://localhost:5173 （已配置 /api 代理到 8000）
+npm run dev
 ```
 
-### 3. 使用流程
+Web 模式默认禁用验证码回显；仅开发联调可设置 `QA_DEV_AUTH=1`。共享 AI 配置仅允许 `QA_ADMIN_USER_IDS` 中列出的用户修改，本地文件访问需显式设置 `QA_ALLOW_LOCAL_FILES=1`。复制 `.env.example` 后必须替换密钥，Web 模式不应直接沿用开发配置对外开放。
 
-1. 打开 http://localhost:5173 → 注册（验证码在开发模式下直接弹出）→ 登录
-2. 进入【设置 → AI 服务配置】，填入 DeepSeek API Key 并测试连接
-3. 主页左侧【数据源】添加并测试一个数据库（或 Excel 文件）
-4. 新建会话 → 选择数据源 → 输入问题，回车发送，观察流式回答
-
-## 关键实现说明
-
-- **SSE 流式问答**：`POST /api/chat/send` 返回 `text/event-stream`，依次推送
-  `status(connecting/scanning/analyzing)` → 多个 `message` → `complete`。
-  前端用 `fetch + ReadableStream` 解析，`AbortController` 实现“停止”。
-- **NL2SQL**：从目标库提取 Schema → DeepSeek 生成 SQL（仅允许 SELECT）→ 执行 → DeepSeek 流式分析。
-- **Excel 数据源**：把工作表读入内存 SQLite，每个 sheet 一张表，从而支持自然语言查询。
-- **安全**：用户密码 bcrypt(成本因子12)；数据库密码 / API Key 使用 AES-256-CBC 加密存储；
-  JWT 24h 过期（记住我 30 天）；密码错误 5 次锁定 15 分钟（内存计数）。
-- **统一错误格式**：所有错误返回 `{ "error": code, "message": msg }`，与 API 文档一致。
-
-## 相对文档的取舍（务实落地）
-
-| 项 | 文档 | 实际实现 | 原因 |
-|----|------|----------|------|
-| 主数据库 | MySQL | 默认 SQLite，可切 MySQL | 零配置即可运行，改 `DATABASE_URL` 即用 MySQL |
-| 短信验证码 | 手机短信 | 开发模式直接返回 `dev_code` | 无短信网关，便于联调；生产对接短信服务即可 |
-| 前端语言 | Vue2 + TS | Vue 2.7 + JS（SFC） | 降低构建复杂度、减少分层，接口契约/类型语义保持一致 |
-| 后端分层 | API/逻辑/数据访问分层 | 路由内直接访问 DB（无 service/repo 层） | 按需求“减少分层”，保持低抽象、易读 |
-
-所有 **27 个 API 接口**、**8 张数据表**、SSE 事件协议、错误码均严格对齐文档。
-
-## 接口对照
-
-完整接口见 `http://localhost:8000/docs`，覆盖：认证、数据库配置、会话管理、问答交互、
-系统配置、用户、数据导入(Excel)、日志、数据导出、通知 共 11 个模块。
+原有 Docker 部署文件保留。SQLite 和 MySQL 是独立存储，切换数据库配置不会自动迁移已有数据。

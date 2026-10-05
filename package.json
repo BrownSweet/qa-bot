@@ -1,0 +1,40 @@
+{
+  "name": "qa-robot-desktop",
+  "version": "1.2.1",
+  "private": true,
+  "description": "本地数据问答与分析桌面应用",
+  "author": "QA Robot",
+  "main": "desktop/main.cjs",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "frontend:install": "npm ci --prefix frontend",
+    "frontend:build": "npm run build --prefix frontend",
+    "desktop:dev": "npm run frontend:build && electron .",
+    "backend:build": "python3 scripts/build_backend.py",
+    "backend:windows": "python3 scripts/build_windows_backend.py",
+    "desktop:pack": "electron-builder --dir --publish never",
+    "desktop:dist": "electron-builder --publish never",
+    "test:desktop": "node --test desktop/tests/*.test.cjs",
+    "test:frontend": "npm test --prefix frontend"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.qarobot.desktop",
+    "productName": "QA Robot",
+    "asar": true,
+    "beforePack": "scripts/verify_backend.cjs",
+    "icon": "desktop/assets/icon.png",
+    "directories": { "output": "release", "buildResources": "desktop/assets" },
+    "files": ["desktop/**/*.cjs", "!desktop/tests/**", "package.json"],
+    "extraResources": [
+      { "from": "frontend/dist", "to": "web" }
+    ],
+    "artifactName": "QA-Robot-${version}-${os}-${arch}.${ext}",
+    "mac": { "category": "public.app-category.productivity", "target": ["dmg", "zip"], "identity": "-", "extraResources": [{ "from": "build/backend/qa-backend", "to": "backend" }] },
+    "win": { "target": ["nsis"], "signExecutable": false, "extraResources": [{ "from": "build/backend-windows/qa-backend", "to": "backend" }] },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "deleteAppDataOnUninstall": false }
+  }
+}

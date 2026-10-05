@@ -15,6 +15,8 @@ def query_logs(
     db: Session = Depends(get_db), user=Depends(security.get_current_user),
 ):
     query = db.query(models.Log)
+    if user.id not in security.settings.ADMIN_USER_IDS:
+        query = query.filter(models.Log.user_id == user.id)
     if user_id:
         query = query.filter(models.Log.user_id == user_id)
     if action:

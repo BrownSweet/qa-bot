@@ -1,0 +1,141 @@
+name: Desktop installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: 'Build publisher-signed installers (requires configured signing secrets)'
+        type: boolean
+        default: false
+  push:
+    tags: ['desktop-v*']
+  pull_request:
+    paths: ['backend/**', 'frontend/**', 'desktop/**', 'scripts/**', 'package*.json', '.github/workflows/desktop.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+            arch: x64
+          - os: macos-14
+            target: mac
+            arch: arm64
+          - os: macos-15-intel
+            target: mac
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHON_DOTENV_DISABLED: '1'
+      DATABASE_URL: 'sqlite://'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install backend dependencies from wheels
+        if: matrix.target != 'mac' || matrix.arch != 'x64'
+        run: 'python -m pip install --only-binary=:all: -r backend/requirements-build.txt'
+      - name: Build macOS Intel cryptography from verified sources
+        if: matrix.target == 'mac' && matrix.arch == 'x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -c 'import platform; assert platform.machine() == "x86_64"'
+          build_dir="$RUNNER_TEMP/qa-robot-crypto-x64"
+          mkdir -p "$build_dir"
+
+          curl -fsSL --retry 3 \
+            https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-apple-darwin/rustup-init \
+            -o "$build_dir/rustup-init"
+          printf '%s  %s\n' '259e2b84274434085163fe8d556510571772cda2aa6d87ca6aa664f57bc644e3' "$build_dir/rustup-init" | shasum -a 256 -c -
+          chmod +x "$build_dir/rustup-init"
+          export RUSTUP_HOME="$build_dir/rustup" CARGO_HOME="$build_dir/cargo"
+          "$build_dir/rustup-init" -y --no-modify-path --default-toolchain 1.90.0 --profile minimal
+          scripts_dir="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
+          export PATH="$scripts_dir:$CARGO_HOME/bin:$PATH"
+          rustc -vV
+          python -c 'import subprocess; version = subprocess.check_output(["rustc", "-vV"], text=True); assert "host: x86_64-apple-darwin" in version and "release: 1.90.0" in version'
+
+          curl -fsSL --retry 3 \
+            https://github.com/openssl/openssl/releases/download/openssl-4.0.3/openssl-4.0.3.tar.gz \
+            -o "$build_dir/openssl-4.0.3.tar.gz"
+          printf '%s  %s\n' '325b5c806167c13b40b1ffeadfe0248197c00eccc4cf123ec1e28d2d2fd216d9' "$build_dir/openssl-4.0.3.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$build_dir/openssl-4.0.3.tar.gz" -C "$build_dir"
+          openssl_prefix="$build_dir/openssl-x64"
+          (
+            cd "$build_dir/openssl-4.0.3"
+            CC='clang -arch x86_64' CFLAGS='-mmacosx-version-min=13.0' perl ./Configure darwin64-x86_64-cc no-shared no-tests --prefix="$openssl_prefix" --openssldir="$openssl_prefix/ssl"
+            make -j4 build_libs
+            make install_sw
+          )
+          "$openssl_prefix/bin/openssl" version
+
+          curl -fsSL --retry 3 \
+            https://files.pythonhosted.org/packages/9d/af/182eb91b0df3fe75c4d9f26fe70684569566745f6ba7e5c9c73a862c5252/cryptography-50.0.2.tar.gz \
+            -o "$build_dir/cryptography-50.0.2.tar.gz"
+          printf '%s  %s\n' '7b46165bb56eb4704e2eaaf86f3c940d19154535d9b0ca7d6d590b04060e00d5' "$build_dir/cryptography-50.0.2.tar.gz" | shasum -a 256 -c -
+          python -m pip install --only-binary=:all: 'maturin==1.15.0' 'cffi==2.0.0' 'setuptools==84.0.0'
+          export OPENSSL_DIR="$openssl_prefix" OPENSSL_STATIC=1 CC='clang -arch x86_64' MACOSX_DEPLOYMENT_TARGET=13.0
+          python -m pip install --no-build-isolation --no-deps --no-cache-dir "$build_dir/cryptography-50.0.2.tar.gz"
+          python -m pip install --only-binary=:all: -r backend/requirements-build.txt
+          python -m pip check
+          python - <<'PY'
+          import cryptography
+          import platform
+          from cryptography.hazmat.backends.openssl.backend import backend
+          from cryptography.fernet import Fernet
+
+          assert platform.machine() == 'x86_64'
+          assert cryptography.__version__ == '50.0.2'
+          assert backend.openssl_version_text().startswith('OpenSSL 4.0.3 ')
+          fernet = Fernet(Fernet.generate_key())
+          assert fernet.decrypt(fernet.encrypt(b'qa-robot-x64')) == b'qa-robot-x64'
+          PY
+      - run: npm ci
+      - run: npm ci --prefix frontend
+      - run: python -m pytest backend/tests scripts/tests -q
+      - run: npm run test:desktop
+      - run: npm run test:frontend
+      - run: npm run frontend:build
+      - if: matrix.target == 'mac'
+        run: python scripts/build_backend.py
+      - if: matrix.target == 'win'
+        run: python scripts/build_windows_backend.py
+      - run: python scripts/smoke_backend.py
+      - if: ${{ github.event_name != 'workflow_dispatch' || inputs.signed != true }}
+        run: node scripts/package_desktop.cjs ${{ matrix.target }} ${{ matrix.arch }}
+      - if: ${{ github.event_name == 'workflow_dispatch' && inputs.signed == true }}
+        run: node scripts/package_desktop.cjs ${{ matrix.target }} ${{ matrix.arch }} --signed
+        env:
+          CSC_LINK: ${{ matrix.target == 'mac' && secrets.MAC_CSC_LINK || secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ matrix.target == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || secrets.WIN_CSC_KEY_PASSWORD }}
+          QA_MAC_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - run: node scripts/smoke_desktop.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qa-robot-${{ matrix.target }}-${{ matrix.arch }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+          if-no-files-found: error

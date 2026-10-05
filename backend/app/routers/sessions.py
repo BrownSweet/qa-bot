@@ -21,6 +21,7 @@ def list_sessions(keyword: str = None, db: Session = Depends(get_db),
     ).all()
     return {"sessions": [{
         "id": s.id, "name": s.name, "is_pinned": s.is_pinned,
+        "db_config_id": s.db_config_id,
         "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat(),
     } for s in sessions]}
 
@@ -28,8 +29,11 @@ def list_sessions(keyword: str = None, db: Session = Depends(get_db),
 @router.post("", status_code=201)
 def create_session(body: schemas.CreateSessionRequest, db: Session = Depends(get_db),
                    user=Depends(security.get_current_user)):
+    if body.db_config_id is not None:
+        _ensure_owned_source(db, body.db_config_id, user.id)
     session = models.ChatSession(
         id=gen_uuid(), user_id=user.id, name=(body.name or "新会话"), is_pinned=False,
+        db_config_id=body.db_config_id,
     )
     db.add(session)
     db.commit()
@@ -37,6 +41,7 @@ def create_session(body: schemas.CreateSessionRequest, db: Session = Depends(get
     return {
         "message": "会话创建成功",
         "session": {"id": session.id, "name": session.name, "is_pinned": session.is_pinned,
+                    "db_config_id": session.db_config_id,
                     "created_at": session.created_at.isoformat()},
     }
 
@@ -49,8 +54,12 @@ def update_session(session_id: str, body: schemas.UpdateSessionRequest,
         session.name = body.name
     if body.is_pinned is not None:
         session.is_pinned = body.is_pinned
+    if "db_config_id" in body.model_fields_set:
+        if body.db_config_id is not None:
+            _ensure_owned_source(db, body.db_config_id, user.id)
+        session.db_config_id = body.db_config_id
     db.commit()
-    return {"message": "会话更新成功"}
+    return {"message": "会话更新成功", "db_config_id": session.db_config_id}
 
 
 @router.delete("/{session_id}")
@@ -74,3 +83,11 @@ def _get_owned(db: Session, session_id: str, user_id: str) -> models.ChatSession
     if not session:
         raise api_error(404, "not_found", "会话不存在")
     return session
+
+
+def _ensure_owned_source(db: Session, source_id: str, user_id: str):
+    source = (db.query(models.DBConfig)
+              .filter(models.DBConfig.id == source_id, models.DBConfig.user_id == user_id)
+              .first())
+    if source is None:
+        raise api_error(404, "not_found", "数据库配置不存在")

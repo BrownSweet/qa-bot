@@ -1,5 +1,6 @@
 # Python
 backend/.venv/
+backend/.venv-desktop/
 __pycache__/
 *.pyc
 backend/.env
@@ -9,6 +10,14 @@ backend/.env
 # Node
 frontend/node_modules/
 frontend/dist/
+node_modules/
+build/
+release/
+/build-*/
+/release-*/
+.tools/
+.pytest_cache/
+.cache/
 
 # Misc
 .DS_Store

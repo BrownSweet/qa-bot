@@ -66,6 +66,8 @@ def register(body: schemas.RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/send-code")
 def send_code(body: schemas.SendCodeRequest, db: Session = Depends(get_db)):
+    if not security.settings.DEV_AUTH:
+        raise api_error(503, "unavailable", "短信服务尚未配置，验证码注册和找回密码未启用")
     recent = (
         db.query(models.VerificationCode)
         .filter(models.VerificationCode.phone == body.phone,

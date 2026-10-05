@@ -54,11 +54,13 @@ class TestConnectionRequest(BaseModel):
 # ===== 会话 =====
 class CreateSessionRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
+    db_config_id: Optional[str] = None
 
 
 class UpdateSessionRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
     is_pinned: Optional[bool] = None
+    db_config_id: Optional[str] = None
 
 
 # ===== 问答 =====
@@ -66,6 +68,8 @@ class SendMessageRequest(BaseModel):
     session_id: str
     db_config_id: str
     question: str = Field(..., min_length=1, max_length=1000)
+    analysis_task_id: Optional[str] = None
+    analysis_task_parameters: Optional[dict[str, str]] = None
 
 
 # ===== 系统配置 =====
@@ -73,6 +77,7 @@ class UpdateConfigRequest(BaseModel):
     api_key: Optional[str] = None
     api_url: Optional[str] = None
     timeout: Optional[int] = Field(None, ge=1, le=60)
+    model: Optional[str] = Field(None, min_length=1, max_length=100)
 
 
 # ===== 用户 =====
@@ -93,12 +98,17 @@ class ParseExcelRequest(BaseModel):
 class GetSheetDataRequest(BaseModel):
     file_path: str
     sheet_name: str
-    limit: Optional[int] = 100
+    limit: int = Field(100, ge=1, le=200)
 
 
 # ===== 导出 =====
 class ExportRequest(BaseModel):
     session_id: str
+    format: str = Field(..., pattern="^(excel|csv)$")
+
+
+class ExportResultRequest(BaseModel):
+    message_id: str
     format: str = Field(..., pattern="^(excel|csv)$")
 
 
